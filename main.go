@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 
@@ -20,10 +20,12 @@ import (
 
 func handleDNSRequest(w dns.ResponseWriter, req *dns.Msg) {
 	// 打包DNS请求为二进制
+	failedResp := new(dns.Msg)
+	failedResp.SetRcode(req, dns.RcodeServerFailure)
 	packedReq, err := req.Pack()
 	if err != nil {
 		log.Printf("Pack error: %v", err)
-		dns.HandleFailed(w, req)
+		_ = w.WriteMsg(failedResp)
 		return
 	}
 
@@ -35,6 +37,7 @@ func handleDNSRequest(w dns.ResponseWriter, req *dns.Msg) {
 	dohreq, err := http.NewRequest("POST", dohURL, bytes.NewReader(packedReq))
 	if err != nil {
 		log.Printf("NewRequest error: %v", err)
+		_ = w.WriteMsg(failedResp)
 		return
 	}
 	dohreq.Header.Set("Content-Type", "application/dns-message")
@@ -51,27 +54,28 @@ func handleDNSRequest(w dns.ResponseWriter, req *dns.Msg) {
 	resp, err := client.Do(dohreq)
 	if err != nil {
 		log.Printf("HTTP POST error: %v", err)
+		_ = w.WriteMsg(failedResp)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// 读取并解包返回的二进制DNS响应
-	respData, err := ioutil.ReadAll(resp.Body)
+	respData, err := io.ReadAll(resp.Body)
 	if err != nil {
 		log.Printf("ReadAll error: %v", err)
-		dns.HandleFailed(w, req)
+		_ = w.WriteMsg(failedResp)
 		return
 	}
 
 	respMsg := &dns.Msg{}
 	if err := respMsg.Unpack(respData); err != nil {
 		log.Printf("Unpack error: %v", err)
-		dns.HandleFailed(w, req)
+		_ = w.WriteMsg(failedResp)
 		return
 	}
 
 	// 回复DNS客户端
-	w.WriteMsg(respMsg)
+	_ = w.WriteMsg(respMsg)
 }
 
 func main() {
