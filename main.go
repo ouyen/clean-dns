@@ -22,6 +22,17 @@ func handleDNSRequest(w dns.ResponseWriter, req *dns.Msg) {
 	// 打包DNS请求为二进制
 	failedResp := new(dns.Msg)
 	failedResp.SetRcode(req, dns.RcodeServerFailure)
+
+	if len(req.Question) == 1 {
+		q := req.Question[0]
+		key := fmt.Sprintf("%s:%d", q.Name, q.Qtype)
+		if cached, ok := globalCache.Get(key); ok {
+			cached.Id = req.Id
+			_ = w.WriteMsg(cached)
+			return
+		}
+	}
+
 	packedReq, err := req.Pack()
 	if err != nil {
 		log.Printf("Pack error: %v", err)
@@ -75,6 +86,13 @@ func handleDNSRequest(w dns.ResponseWriter, req *dns.Msg) {
 	}
 
 	// 回复DNS客户端
+	if len(req.Question) == 1 && len(respMsg.Answer) > 0 {
+		ttl := respMsg.Answer[0].Header().Ttl
+		q := req.Question[0]
+		key := fmt.Sprintf("%s:%d", q.Name, q.Qtype)
+		globalCache.Set(key, respMsg, ttl)
+	}
+
 	_ = w.WriteMsg(respMsg)
 }
 
