@@ -1,0 +1,5 @@
+/go.mod/*
+/.idea/*
+/.idea/clean-dns.iml
+/.idea/.gitignore
+/go.sum
