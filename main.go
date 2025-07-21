@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -15,7 +16,7 @@ import (
 
 //const dohURL = "https://cloudflare-dns.com/dns-query"
 
-const dohURL = "https://dns.alidns.com/dns-query"
+//const dohURL = "https://dns.alidns.com/dns-query"
 
 func handleDNSRequest(w dns.ResponseWriter, req *dns.Msg) {
 	// 打包DNS请求为二进制
@@ -27,20 +28,35 @@ func handleDNSRequest(w dns.ResponseWriter, req *dns.Msg) {
 	}
 
 	// 通过HTTP POST发送到DoH服务器
-	httpResp, err := http.Post(
-		dohURL,
-		"application/dns-message",
-		bytes.NewReader(packedReq),
-	)
+
+	dohURL := "https://104.16.248.249/dns-query"
+
+	// 手动创建 http.Request，设置 Host header
+	dohreq, err := http.NewRequest("POST", dohURL, bytes.NewReader(packedReq))
 	if err != nil {
-		log.Printf("HTTP POST error: %v", err)
-		dns.HandleFailed(w, req)
+		log.Printf("NewRequest error: %v", err)
 		return
 	}
-	defer httpResp.Body.Close()
+	dohreq.Header.Set("Content-Type", "application/dns-message")
+	dohreq.Header.Set("accept", "application/dns-json")
+	dohreq.Host = "cloudflare-dns.com"
+
+	// 跳过证书校验（等效于 curl -k）
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+
+	resp, err := client.Do(dohreq)
+	if err != nil {
+		log.Printf("HTTP POST error: %v", err)
+		return
+	}
+	defer resp.Body.Close()
 
 	// 读取并解包返回的二进制DNS响应
-	respData, err := ioutil.ReadAll(httpResp.Body)
+	respData, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		log.Printf("ReadAll error: %v", err)
 		dns.HandleFailed(w, req)
